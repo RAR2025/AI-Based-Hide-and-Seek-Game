@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI Hide & Seek</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: Arial;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(8, 50px);
+      gap: 2px;
+      margin-top: 20px;
+    }
+
+    .cell {
+      width: 50px;
+      height: 50px;
+      background: #eee;
+    }
+
+    .wall { background: black; }
+    .player { background: blue; }
+    .ai { background: red; }
+
+    #gameOver {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>AI Hide & Seek Game</h2>
+<p>Use Arrow Keys to Move</p>
+
+<div id="grid"></div>
+
+<div id="gameOver">
+  <div>Game Over - AI Caught You</div>
+  <button onclick="restartGame()">Restart</button>
+</div>
+
+<script>
+const size = 8;
+
+let grid = [
+  [0,0,0,0,0,0,0,0],
+  [0,1,1,0,0,1,1,0],
+  [0,0,0,0,0,0,0,0],
+  [0,1,0,1,0,1,0,0],
+  [0,0,0,1,0,0,0,0],
+  [0,1,0,0,0,1,0,0],
+  [0,0,0,0,1,0,0,0],
+  [0,0,1,0,0,0,1,0]
+];
+
+let player = {x:0, y:0};
+let ai = {x:7, y:7};
+let gameRunning = true;
+
+const gridDiv = document.getElementById("grid");
+const gameOverDiv = document.getElementById("gameOver");
+
+function drawGrid() {
+  gridDiv.innerHTML = "";
+
+  for(let i=0;i<size;i++){
+    for(let j=0;j<size;j++){
+      let cell = document.createElement("div");
+      cell.classList.add("cell");
+
+      if(grid[i][j] === 1) cell.classList.add("wall");
+      if(i === player.x && j === player.y) cell.classList.add("player");
+      if(i === ai.x && j === ai.y) cell.classList.add("ai");
+
+      gridDiv.appendChild(cell);
+    }
+  }
+}
+
+function movePlayer(dx, dy) {
+  if(!gameRunning) return;
+
+  let nx = player.x + dx;
+  let ny = player.y + dy;
+
+  if(nx>=0 && ny>=0 && nx<size && ny<size && grid[nx][ny] !== 1){
+    player.x = nx;
+    player.y = ny;
+  }
+}
+
+document.addEventListener("keydown", (e) => {
+  if(e.key === "ArrowUp") movePlayer(-1,0);
+  if(e.key === "ArrowDown") movePlayer(1,0);
+  if(e.key === "ArrowLeft") movePlayer(0,-1);
+  if(e.key === "ArrowRight") movePlayer(0,1);
+});
+
+function canSeePlayer() {
+  if(ai.x === player.x){
+    let start = Math.min(ai.y, player.y);
+    let end = Math.max(ai.y, player.y);
+    for(let i=start+1;i<end;i++){
+      if(grid[ai.x][i] === 1) return false;
+    }
+    return true;
+  }
+
+  if(ai.y === player.y){
+    let start = Math.min(ai.x, player.x);
+    let end = Math.max(ai.x, player.x);
+    for(let i=start+1;i<end;i++){
+      if(grid[i][ai.y] === 1) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+// Heuristic: Manhattan Distance
+function heuristic(a, b){
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// A* Algorithm
+function aStar(start, goal){
+  let open = [start];
+  let cameFrom = {};
+  let gScore = {};
+  let fScore = {};
+
+  let key = (n) => n.x + "," + n.y;
+
+  gScore[key(start)] = 0;
+  fScore[key(start)] = heuristic(start, goal);
+
+  while(open.length > 0){
+    open.sort((a,b) => fScore[key(a)] - fScore[key(b)]);
+    let current = open.shift();
+
+    if(current.x === goal.x && current.y === goal.y){
+      let path = [];
+      let temp = key(current);
+      while(temp){
+        let [x,y] = temp.split(",").map(Number);
+        path.unshift({x,y});
+        temp = cameFrom[temp];
+      }
+      return path;
+    }
+
+    let moves = [
+      {x:current.x+1, y:current.y},
+      {x:current.x-1, y:current.y},
+      {x:current.x, y:current.y+1},
+      {x:current.x, y:current.y-1}
+    ];
+
+    for(let neighbor of moves){
+      if(neighbor.x<0 || neighbor.y<0 || neighbor.x>=size || neighbor.y>=size) continue;
+      if(grid[neighbor.x][neighbor.y] === 1) continue;
+
+      let tentative = gScore[key(current)] + 1;
+
+      if(gScore[key(neighbor)] === undefined || tentative < gScore[key(neighbor)]){
+        cameFrom[key(neighbor)] = key(current);
+        gScore[key(neighbor)] = tentative;
+        fScore[key(neighbor)] = tentative + heuristic(neighbor, goal);
+
+        if(!open.find(n => n.x === neighbor.x && n.y === neighbor.y)){
+          open.push(neighbor);
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function moveAI() {
+  if(!gameRunning) return;
+
+  if(canSeePlayer()){
+    let path = aStar(ai, player);
+    if(path && path.length > 1){
+      ai = path[1];
+    }
+  } else {
+    let moves = [
+      {x:ai.x+1, y:ai.y},
+      {x:ai.x-1, y:ai.y},
+      {x:ai.x, y:ai.y+1},
+      {x:ai.x, y:ai.y-1}
+    ];
+
+    let valid = moves.filter(m =>
+      m.x>=0 && m.y>=0 && m.x<size && m.y<size && grid[m.x][m.y] !== 1
+    );
+
+    if(valid.length > 0){
+      ai = valid[Math.floor(Math.random() * valid.length)];
+    }
+  }
+
+  if(ai.x === player.x && ai.y === player.y){
+    gameRunning = false;
+    gameOverDiv.style.display = "flex";
+  }
+}
+
+function gameLoop(){
+  moveAI();
+  drawGrid();
+}
+
+function restartGame(){
+  player = {x:0, y:0};
+  ai = {x:7, y:7};
+  gameRunning = true;
+  gameOverDiv.style.display = "none";
+}
+
+setInterval(gameLoop, 400);
+drawGrid();
+</script>
+
+</body>
+</html>
