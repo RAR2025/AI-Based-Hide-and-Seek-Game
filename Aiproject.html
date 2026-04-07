@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
   <title>AI Hide & Seek</title>
@@ -56,6 +56,7 @@
 <h2>AI Hide & Seek Game</h2>
 <p>Use Arrow Keys to Move</p>
 
+<button id="startButton">Start Game</button>
 <div id="grid"></div>
 
 <div id="gameOver">
@@ -65,76 +66,105 @@
 
 <script>
 const size = 8;
+const wallProbability = 0.25;
 
-let grid = [
-  [0,0,0,0,0,0,0,0],
-  [0,1,1,0,0,1,1,0],
-  [0,0,0,0,0,0,0,0],
-  [0,1,0,1,0,1,0,0],
-  [0,0,0,1,0,0,0,0],
-  [0,1,0,0,0,1,0,0],
-  [0,0,0,0,1,0,0,0],
-  [0,0,1,0,0,0,1,0]
-];
-
-let player = {x:0, y:0};
-let ai = {x:7, y:7};
-let gameRunning = true;
+let grid;
+let player;
+let ai;
+let gameRunning;
+let lastSeen = null;
 
 const gridDiv = document.getElementById("grid");
 const gameOverDiv = document.getElementById("gameOver");
+const startButton = document.getElementById("startButton");
 
+// ---------- GRID GENERATION ----------
+function generateGrid() {
+  let g = [];
+
+  for (let i = 0; i < size; i++) {
+    let row = [];
+    for (let j = 0; j < size; j++) {
+      row.push(Math.random() < wallProbability ? 1 : 0);
+    }
+    g.push(row);
+  }
+
+  g[0][0] = 0;
+  g[size - 1][size - 1] = 0;
+
+  return g;
+}
+
+function generateValidGrid() {
+  let newGrid;
+  let attempts = 0;
+  const maxAttempts = 100;
+
+  do {
+    newGrid = generateGrid();
+    grid = newGrid;
+    attempts++;
+  } while (!aStar({x:0,y:0}, {x:size-1,y:size-1}) && attempts < maxAttempts);
+
+  return newGrid;
+}
+
+
+// ---------- DRAW ----------
 function drawGrid() {
   gridDiv.innerHTML = "";
 
-  for(let i=0;i<size;i++){
-    for(let j=0;j<size;j++){
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
       let cell = document.createElement("div");
       cell.classList.add("cell");
 
-      if(grid[i][j] === 1) cell.classList.add("wall");
-      if(i === player.x && j === player.y) cell.classList.add("player");
-      if(i === ai.x && j === ai.y) cell.classList.add("ai");
+      if (grid[i][j] === 1) cell.classList.add("wall");
+      if (i === player.x && j === player.y) cell.classList.add("player");
+      if (i === ai.x && j === ai.y) cell.classList.add("ai");
 
       gridDiv.appendChild(cell);
     }
   }
 }
 
+
+// ---------- PLAYER ----------
 function movePlayer(dx, dy) {
-  if(!gameRunning) return;
+  if (!gameRunning) return;
 
   let nx = player.x + dx;
   let ny = player.y + dy;
 
-  if(nx>=0 && ny>=0 && nx<size && ny<size && grid[nx][ny] !== 1){
+  if (nx>=0 && ny>=0 && nx<size && ny<size && grid[nx][ny] !== 1) {
     player.x = nx;
     player.y = ny;
   }
 }
 
 document.addEventListener("keydown", (e) => {
-  if(e.key === "ArrowUp") movePlayer(-1,0);
-  if(e.key === "ArrowDown") movePlayer(1,0);
-  if(e.key === "ArrowLeft") movePlayer(0,-1);
-  if(e.key === "ArrowRight") movePlayer(0,1);
+  if (e.key === "ArrowUp") movePlayer(-1,0);
+  if (e.key === "ArrowDown") movePlayer(1,0);
+  if (e.key === "ArrowLeft") movePlayer(0,-1);
+  if (e.key === "ArrowRight") movePlayer(0,1);
 });
 
+
+// ---------- VISION ----------
 function canSeePlayer() {
-  if(ai.x === player.x){
-    let start = Math.min(ai.y, player.y);
-    let end = Math.max(ai.y, player.y);
-    for(let i=start+1;i<end;i++){
-      if(grid[ai.x][i] === 1) return false;
+  if (ai.x === player.x) {
+    let [start, end] = [ai.y, player.y].sort((a,b)=>a-b);
+    for (let i = start+1; i < end; i++) {
+      if (grid[ai.x][i] === 1) return false;
     }
     return true;
   }
 
-  if(ai.y === player.y){
-    let start = Math.min(ai.x, player.x);
-    let end = Math.max(ai.x, player.x);
-    for(let i=start+1;i<end;i++){
-      if(grid[i][ai.y] === 1) return false;
+  if (ai.y === player.y) {
+    let [start, end] = [ai.x, player.x].sort((a,b)=>a-b);
+    for (let i = start+1; i < end; i++) {
+      if (grid[i][ai.y] === 1) return false;
     }
     return true;
   }
@@ -142,12 +172,12 @@ function canSeePlayer() {
   return false;
 }
 
-// Heuristic: Manhattan Distance
-function heuristic(a, b){
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+// ---------- A* ----------
+function heuristic(a,b){
+  return Math.abs(a.x-b.x) + Math.abs(a.y-b.y);
 }
 
-// A* Algorithm
 function aStar(start, goal){
   let open = [start];
   let cameFrom = {};
@@ -159,13 +189,14 @@ function aStar(start, goal){
   gScore[key(start)] = 0;
   fScore[key(start)] = heuristic(start, goal);
 
-  while(open.length > 0){
-    open.sort((a,b) => fScore[key(a)] - fScore[key(b)]);
+  while(open.length){
+    open.sort((a,b)=>fScore[key(a)] - fScore[key(b)]);
     let current = open.shift();
 
-    if(current.x === goal.x && current.y === goal.y){
+    if(current.x===goal.x && current.y===goal.y){
       let path = [];
       let temp = key(current);
+
       while(temp){
         let [x,y] = temp.split(",").map(Number);
         path.unshift({x,y});
@@ -175,78 +206,108 @@ function aStar(start, goal){
     }
 
     let moves = [
-      {x:current.x+1, y:current.y},
-      {x:current.x-1, y:current.y},
-      {x:current.x, y:current.y+1},
-      {x:current.x, y:current.y-1}
+      {x:current.x+1,y:current.y},
+      {x:current.x-1,y:current.y},
+      {x:current.x,y:current.y+1},
+      {x:current.x,y:current.y-1}
     ];
 
-    for(let neighbor of moves){
-      if(neighbor.x<0 || neighbor.y<0 || neighbor.x>=size || neighbor.y>=size) continue;
-      if(grid[neighbor.x][neighbor.y] === 1) continue;
+    for(let n of moves){
+      if(n.x<0||n.y<0||n.x>=size||n.y>=size) continue;
+      if(grid[n.x][n.y]===1) continue;
 
       let tentative = gScore[key(current)] + 1;
 
-      if(gScore[key(neighbor)] === undefined || tentative < gScore[key(neighbor)]){
-        cameFrom[key(neighbor)] = key(current);
-        gScore[key(neighbor)] = tentative;
-        fScore[key(neighbor)] = tentative + heuristic(neighbor, goal);
+      if(gScore[key(n)]===undefined || tentative<gScore[key(n)]){
+        cameFrom[key(n)] = key(current);
+        gScore[key(n)] = tentative;
+        fScore[key(n)] = tentative + heuristic(n,goal);
 
-        if(!open.find(n => n.x === neighbor.x && n.y === neighbor.y)){
-          open.push(neighbor);
+        if(!open.find(x=>x.x===n.x && x.y===n.y)){
+          open.push(n);
         }
       }
     }
   }
-
   return null;
 }
 
-function moveAI() {
+
+// ---------- AI ----------
+function moveAI(){
   if(!gameRunning) return;
 
+  let target = null;
+
   if(canSeePlayer()){
-    let path = aStar(ai, player);
-    if(path && path.length > 1){
+    lastSeen = {x:player.x,y:player.y};
+    target = player;
+  } 
+  else if(lastSeen){
+    target = lastSeen;
+  }
+
+  if(target){
+    let path = aStar(ai,target);
+    if(path && path.length>1){
       ai = path[1];
     }
-  } else {
+
+    if(ai.x===lastSeen?.x && ai.y===lastSeen?.y){
+      lastSeen = null;
+    }
+  } 
+  else {
     let moves = [
-      {x:ai.x+1, y:ai.y},
-      {x:ai.x-1, y:ai.y},
-      {x:ai.x, y:ai.y+1},
-      {x:ai.x, y:ai.y-1}
+      {x:ai.x+1,y:ai.y},
+      {x:ai.x-1,y:ai.y},
+      {x:ai.x,y:ai.y+1},
+      {x:ai.x,y:ai.y-1}
     ];
 
     let valid = moves.filter(m =>
-      m.x>=0 && m.y>=0 && m.x<size && m.y<size && grid[m.x][m.y] !== 1
+      m.x>=0 && m.y>=0 &&
+      m.x<size && m.y<size &&
+      grid[m.x][m.y]!==1
     );
 
-    if(valid.length > 0){
-      ai = valid[Math.floor(Math.random() * valid.length)];
+    if(valid.length){
+      ai = valid[Math.floor(Math.random()*valid.length)];
     }
   }
 
-  if(ai.x === player.x && ai.y === player.y){
+  if(ai.x===player.x && ai.y===player.y){
     gameRunning = false;
     gameOverDiv.style.display = "flex";
   }
 }
 
+
+// ---------- LOOP ----------
 function gameLoop(){
   moveAI();
   drawGrid();
 }
 
+
+// ---------- RESTART ----------
 function restartGame(){
-  player = {x:0, y:0};
-  ai = {x:7, y:7};
+  grid = generateValidGrid();
+  player = {x:0,y:0};
+  ai = {x:size-1,y:size-1};
+  lastSeen = null;
   gameRunning = true;
   gameOverDiv.style.display = "none";
+  drawGrid();
 }
 
-setInterval(gameLoop, 400);
-drawGrid();
+// ---------- INIT ----------
+startButton.addEventListener("click", () => {
+  startButton.style.display = "none"; // Hide the start button
+  restartGame(); // Start the game
+  setInterval(gameLoop, 400); // Start the game loop
+});
+
 </script>
 
 </body>
